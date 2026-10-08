@@ -58,6 +58,8 @@ One stdlib-only Python script, `session_registry.py`, wired to three hooks:
 
 **Skipped sessions:**
 - Automated sessions (entry point `sdk-*`, which covers the Agent SDK and `claude -p`).
+- `claude -p` runs started from inside another Claude session. These inherit that session's entry point, so on Claude Code 2.1.205 and newer a session counts only if a person typed at least one of its prompts (`origin.kind == "human"`).
+- Hook calls whose transcript was never written, such as a print-mode run killed early.
 - Sessions with no prompts.
 - The summarizer's own call, flagged by `SESSION_REGISTRY_CHILD=1`.
 

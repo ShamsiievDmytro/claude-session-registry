@@ -61,8 +61,8 @@ def _prompt_text(content):
 
 
 def read_transcript(path):
-    t = {"prompts": 0, "entrypoint": None, "model": None, "branch": None, "cwd": None,
-         "first_ts": None, "last_ts": None, "custom_title": None, "lines": []}
+    t = {"prompts": 0, "entrypoint": None, "model": None, "branch": None, "cwd": None, "version": None,
+         "first_ts": None, "last_ts": None, "custom_title": None, "human": False, "lines": []}
     with open(path, encoding="utf-8", errors="ignore") as fh:
         for raw in fh:
             try:
@@ -77,6 +77,8 @@ def read_transcript(path):
             if kind not in ("user", "assistant") or d.get("isSidechain"):
                 continue
             t["entrypoint"] = t["entrypoint"] or d.get("entrypoint")
+            t["version"] = d.get("version") or t["version"]
+            t["human"] = t["human"] or (d.get("origin") or {}).get("kind") == "human"
             t["cwd"] = d.get("cwd") or t["cwd"]
             t["branch"] = d.get("gitBranch") or t["branch"]
             if d.get("timestamp"):
@@ -98,9 +100,23 @@ def read_transcript(path):
     return t
 
 
+ORIGIN_SINCE = (2, 1, 205)  # oldest Claude Code seen tagging typed prompts with origin.kind == "human"
+
+
+def _version(text):
+    try:
+        return tuple(int(part) for part in (text or "").split("."))
+    except ValueError:
+        return ()
+
+
 def skip(t):
     """Automated (Agent SDK / claude -p) and empty sessions never enter the registry."""
-    return (t["entrypoint"] or "").startswith("sdk-") or t["prompts"] == 0
+    if (t["entrypoint"] or "").startswith("sdk-") or t["prompts"] == 0:
+        return True
+    # `claude -p` started inside another Claude session inherits that session's entrypoint, so on releases
+    # that tag typed prompts, a session nobody typed into is automated
+    return not t["human"] and _version(t["version"]) >= ORIGIN_SINCE
 
 
 def condense(t):
@@ -361,6 +377,8 @@ def spawn(sid, transcript_path):
 
 def on_stop(hook):
     sid, path = hook["session_id"], hook["transcript_path"]
+    if not os.path.isfile(path):  # nothing saved yet (e.g. a print-mode run killed early): nothing to record
+        return
     t = read_transcript(path)
     if skip(t):
         return
@@ -379,6 +397,8 @@ def on_stop(hook):
 
 def on_session_end(hook):
     sid, path = hook["session_id"], hook["transcript_path"]
+    if not os.path.isfile(path):
+        return
     t = read_transcript(path)
     if skip(t):
         return

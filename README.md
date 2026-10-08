@@ -2,17 +2,14 @@
 
 [![tests](https://github.com/ShamsiievDmytro/claude-session-registry/actions/workflows/test.yml/badge.svg)](https://github.com/ShamsiievDmytro/claude-session-registry/actions/workflows/test.yml)
 
-A searchable logbook of your Claude Code sessions. Every interactive session gets an entry in one Markdown file, `~/.claude/session-registry.md`: a short title, what it was about, where you left off, and the exact command to resume it. Ask `/find-session` and get back to any session, in any project.
+A logbook of your Claude Code sessions, kept in one file: `~/.claude/session-registry.md`. Every session gets a short title, a few sentences on what you did, where you left off, and the command that resumes it. When you need an old session back, ask `/find-session`.
 
 ## Install
 
-Requirements:
-- Claude Code 2.1 or newer, on macOS, Linux or Windows.
-- Python 3.9 or newer:
-  - macOS and Linux: as `python3`.
-  - Windows: from [python.org](https://www.python.org/downloads/windows/), which provides the `py` launcher, or from the Microsoft Store.
-- Windows only: [Git for Windows](https://git-scm.com/download/win). Its Git Bash is the shell Claude Code uses on Windows, and the plugin's hooks run in it.
-- The `claude` CLI, logged in. Summaries run through your own account.
+You need:
+- Claude Code 2.1 or newer, with the `claude` CLI logged in.
+- Python 3.9 or newer: `python3` on macOS and Linux; on Windows, the `py` launcher from [python.org](https://www.python.org/downloads/windows/).
+- On Windows only, [Git for Windows](https://git-scm.com/download/win), because the hooks run in Git Bash.
 
 In Claude Code:
 
@@ -21,38 +18,45 @@ In Claude Code:
 /plugin install session-registry@claude-session-registry
 ```
 
-Or from a terminal:
+From a terminal, the same commands are `claude plugin marketplace add ShamsiievDmytro/claude-session-registry` and `claude plugin install session-registry@claude-session-registry`.
 
-```bash
-claude plugin marketplace add ShamsiievDmytro/claude-session-registry
-claude plugin install session-registry@claude-session-registry
-```
+Then start a new session. Its entry appears after Claude's first reply.
 
-Start a new session, and the registry fills in from there.
-
-**Optional: add the sessions you already have.** This summarizes every interactive session whose transcript is still on disk. Claude keeps transcripts for 30 days by default.
+To add the sessions you already have (Claude keeps transcripts for 30 days):
 
 ```bash
 git clone https://github.com/ShamsiievDmytro/claude-session-registry
 python3 claude-session-registry/session_registry.py backfill
 ```
 
-On Windows (PowerShell):
+On Windows, run the second line as `py -3 claude-session-registry\session_registry.py backfill`.
 
-```powershell
-git clone https://github.com/ShamsiievDmytro/claude-session-registry
-py -3 claude-session-registry\session_registry.py backfill
-```
+## Find and resume a session
 
-**Uninstall:**
+`/find-session` on its own lists your 10 most recent sessions. Add a few words you remember, like `/find-session rate limiting redis`, and Claude finds the session and gives you the command to resume it. A plain question works too: "where did I leave off on the billing refactor?" If nothing matches, Claude asks for the project, a rough date or a file you touched.
 
-```bash
-claude plugin uninstall session-registry@claude-session-registry
-```
+Paste the command into a terminal. It's already written for the system the session ran on:
 
-Uninstalling leaves the registry file at `~/.claude/session-registry.md`; delete it yourself if you don't want it.
+| System | Resume command |
+|---|---|
+| macOS, Linux | `cd ~/code/api && claude --resume <id>` |
+| Windows PowerShell | `cd 'C:\Users\you\code\api'; claude --resume <id>` |
 
-## What an entry looks like
+In `cmd.exe`, type it as `cd /d "C:\Users\you\code\api" && claude --resume <id>`.
+
+## Open the registry
+
+The file is plain Markdown, newest session first:
+
+| System | Command |
+|---|---|
+| macOS | `open ~/.claude/session-registry.md` |
+| Linux | `xdg-open ~/.claude/session-registry.md` |
+| Windows PowerShell | `Invoke-Item "$HOME\.claude\session-registry.md"` |
+
+If Windows asks which app to use, `notepad "$HOME\.claude\session-registry.md"` works.
+
+An entry looks like this:
 
 ```markdown
 ## Add rate limiting to the public API
@@ -65,106 +69,24 @@ Uninstalling leaves the registry file at `~/.claude/session-registry.md`; delete
 - **Resume:** `cd ~/code/api && claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11`
 ```
 
-## Usage
+## Good to know
 
-Ask Claude in any session:
+- Entries keep updating in the background while you work, so you never wait on them.
+- The title also shows in Claude's own `/resume` list. If you `/rename` a session, your name wins.
+- Runs of `claude -p` and the Agent SDK are skipped, and sessions where nothing happened are hidden.
+- Claude deletes transcripts after 30 days by default. The entry stays, but that session can no longer be resumed. Raise `cleanupPeriodDays` in `~/.claude/settings.json` to keep them longer.
+- Summaries are written by Haiku through your own login. That's roughly $0.30 a month at API prices for 30 sessions. Nothing else leaves your machine.
+- If something goes wrong, look in `~/.claude/session-registry.log`. To keep the registry somewhere else, set `SESSION_REGISTRY_FILE` in the `env` block of `~/.claude/settings.json`.
+- Windows is tested in CI but hasn't yet been tried in a live session. Issue reports are welcome.
 
-```
-/find-session
-```
-Lists your 10 most recent sessions.
-
-```
-/find-session rate limiting redis
-```
-Finds the matching session and prints its resume command, already written for the system the session ran on.
-
-macOS and Linux (bash, zsh, sh):
+## Uninstall
 
 ```bash
-cd ~/code/api && claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
+claude plugin uninstall session-registry@claude-session-registry
 ```
 
-Windows (PowerShell 5 or 7; also Git Bash unless the folder name contains `'` or `[ ]`):
+This leaves `~/.claude/session-registry.md` in place; delete it if you don't want it.
 
-```powershell
-cd 'C:\Users\you\code\api'; claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
-```
+## More
 
-In Windows `cmd.exe`, type it as `cd /d "C:\Users\you\code\api" && claude --resume <id>`.
-
-Folder names are quoted so that spaces, quotes, `$(…)` and backticks are taken literally. CI pastes each command into real bash, sh, PowerShell 5, PowerShell 7 and Git Bash and checks it lands in the right folder.
-
-You don't need the slash command either. "Where did I leave off on the billing refactor?" or "which session was about the flaky login test?" work too. If nothing matches, Claude asks for more detail: the project, a rough date, or files you touched.
-
-Or skip Claude and open the file yourself.
-
-macOS:
-
-```bash
-open ~/.claude/session-registry.md
-grep -i -A8 "redis" ~/.claude/session-registry.md
-```
-
-Linux:
-
-```bash
-xdg-open ~/.claude/session-registry.md
-grep -i -A8 "redis" ~/.claude/session-registry.md
-```
-
-Windows (PowerShell):
-
-```powershell
-Invoke-Item "$HOME\.claude\session-registry.md"
-Select-String -Path "$HOME\.claude\session-registry.md" -Pattern "redis" -Context 0,8
-```
-
-If Windows asks which app to use, `notepad "$HOME\.claude\session-registry.md"` always works.
-
-## How it works
-
-- **Hooks:** the plugin adds three hooks: after each reply (`Stop`), when a session closes (`SessionEnd`), and before each prompt (`UserPromptSubmit`).
-- **Entry creation:** the entry appears after your first reply, so sessions you open and never use leave nothing behind.
-- **Summaries:** Haiku writes the title, About, Left off and Keywords. It runs after the first reply, then every 10 prompts, then once more when the session closes. It always runs in the background, so you never wait.
-- **Titles in Claude:** the summary title also becomes the session's title in Claude's own `/resume` list. A name you set with `/rename` always wins.
-- **What's skipped:** automated runs (Agent SDK, `claude -p`) are ignored, and sessions with no real work, such as a bare login or a greeting, are hidden.
-- **Deleted transcripts:** when Claude deletes an old transcript (after 30 days by default), the entry stays as a log line and is marked as no longer resumable. To keep sessions resumable longer, raise `cleanupPeriodDays` in `~/.claude/settings.json`.
-
-More detail: [docs/design.md](docs/design.md).
-
-## Cost
-
-Each summary is one lean Haiku call: no plugins, tools or project memory loaded. It costs about 1k–9k input tokens, roughly $0.0003–$0.002 at API prices. At about 30 interactive sessions a month, that comes to around 160 summaries, roughly $0.30/month API-equivalent, drawn from your normal Claude usage.
-
-## Configuration and files
-
-| File | Purpose |
-|---|---|
-| `~/.claude/session-registry.md` | The registry. Hand edits are overwritten. |
-| `~/.claude/session-registry.log` | Errors and sessions hidden as "no real work". Hooks never interrupt a session. |
-| `~/.claude/session-registry.lock` | Keeps parallel sessions from writing at the same time. |
-
-On Windows, `~` is your user folder, for example `C:\Users\you\.claude\session-registry.md`.
-
-To keep the registry somewhere else, set `SESSION_REGISTRY_FILE` in the `env` block of `~/.claude/settings.json`.
-
-**Privacy:** transcripts are read locally. The only thing sent anywhere is the condensed transcript, which goes to Haiku through your own Claude login.
-
-## Limitations
-
-- Claude Code only. Codex support would need its own hooks.
-- `claude` must be on `PATH` or at `~/.local/bin/claude` (`claude.exe` on Windows), so the background summaries can run.
-- Windows is covered by CI: the tests and the hook launcher run on `windows-latest` with Python 3.9 and 3.13. It hasn't yet been tried in a live Windows Claude Code session, so issue reports are welcome.
-
-## Development
-
-```bash
-python3 -m unittest -v test_session_registry
-```
-
-The tests are stdlib-only and never call Haiku.
-
-## License
-
-[MIT](LICENSE)
+How it works: [docs/design.md](docs/design.md). Tests: `python3 -m unittest -v test_session_registry`. License: [MIT](LICENSE).

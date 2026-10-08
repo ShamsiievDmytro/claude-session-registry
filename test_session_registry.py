@@ -92,6 +92,24 @@ class TranscriptTest(Base):
         self.assertEqual(t["prompts"], 2)
         self.assertNotIn("task-notification", "\n".join(t["lines"]))
 
+    def test_print_mode_started_inside_claude_is_skipped(self):
+        # `claude -p` run from inside a Claude session inherits its entrypoint ("claude-desktop"/"cli");
+        # since 2.1.205 only prompts a person typed carry origin.kind == "human"
+        def session(sid, version, origin):
+            PROJECT_DIR.mkdir(parents=True, exist_ok=True)
+            p = PROJECT_DIR / f"{sid}.jsonl"
+            r = row("user", sid, "2026-10-01T10:00:00Z", "claude-desktop", role="user", content="/find-session")
+            r["version"] = version
+            if origin:
+                r["origin"] = {"kind": origin}
+            add_line(p, r)
+            return sr.read_transcript(p)
+
+        self.assertTrue(sr.skip(session("pm", "2.1.294", None)))                 # print mode inside desktop
+        self.assertTrue(sr.skip(session("bot", "2.1.294", "task-notification")))  # no typed prompt at all
+        self.assertFalse(sr.skip(session("me", "2.1.294", "human")))              # a person typed it
+        self.assertFalse(sr.skip(session("old", "2.1.100", None)))               # before origin existed
+
     def test_skip_sdk_and_empty_sessions(self):
         self.assertTrue(sr.skip(sr.read_transcript(make_transcript("sdk", 2, entrypoint="sdk-py"))))
         empty = PROJECT_DIR / "empty.jsonl"
@@ -324,6 +342,14 @@ class HookTest(Base):
         self.spawned.clear()
         make_transcript("tv", 1, start=1)
         run_main(["stop"], hook("tv", p))
+        self.assertEqual(self.spawned, [])
+
+    def test_hooks_ignore_a_transcript_that_was_never_written(self):
+        # a print-mode run killed before saving still fires SessionEnd with its would-be path
+        missing = str(PROJECT_DIR / "never-written.jsonl")
+        for event in ("stop", "session-end"):
+            run_main([event], hook("never-written", missing))
+        self.assertFalse(sr.LOG.exists())
         self.assertEqual(self.spawned, [])
 
     def test_sdk_sessions_and_summarizer_child_are_ignored(self):
