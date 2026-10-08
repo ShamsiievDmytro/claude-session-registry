@@ -17,7 +17,8 @@ os.environ["SESSION_REGISTRY_FILE"] = str(TMP / "registry.md")
 os.environ["SESSION_REGISTRY_PROJECTS"] = str(TMP / "projects")
 os.environ.pop("SESSION_REGISTRY_CHILD", None)
 os.environ["TZ"] = "UTC"
-time.tzset()
+if hasattr(time, "tzset"):  # not on Windows; CI runners there use UTC anyway
+    time.tzset()
 sys.path.insert(0, str(Path(__file__).parent))
 import session_registry as sr  # noqa: E402
 
@@ -57,7 +58,8 @@ class Base(unittest.TestCase):
         self.summary = dict(SUMMARY)
         self.spawned = []
         for name, fake in (("call_haiku", lambda text: dict(self.summary)),
-                           ("spawn", lambda sid, path: self.spawned.append(sid))):
+                           ("spawn", lambda sid, path: self.spawned.append(sid)),
+                           ("WINDOWS", False)):
             patcher = mock.patch.object(sr, name, fake, create=True)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -125,7 +127,7 @@ class RegistryFileTest(Base):
         self.assertEqual(loaded[0]["f"]["Project"], "/tmp/proj (branch: main)")
         self.assertEqual(loaded[0]["f"]["Model / app"], "opus-5-5 · cli")
         self.assertEqual(loaded[0]["f"]["Resume"], "`cd /tmp/proj && claude --resume new`")
-        self.assertTrue(sr.REGISTRY.read_text().startswith(sr.HEADER))
+        self.assertTrue(sr.REGISTRY.read_text(encoding="utf-8").startswith(sr.HEADER))
 
     def test_refresh_updates_last_active_but_keeps_summary(self):
         p = make_transcript("a", 1, day=1)
@@ -140,6 +142,12 @@ class RegistryFileTest(Base):
         self.assertEqual(e["f"]["When"], "2026-10-01 10:00 → last active 2026-10-04 10:01")
         self.assertEqual(e["f"]["About"], "Kept.")
 
+    def test_windows_resume_command_works_in_powershell(self):
+        with mock.patch.object(sr, "WINDOWS", True):
+            e = self.entry("win", 1, cwd="C:\\Users\\me\\My Proj")
+        self.assertEqual(e["f"]["Resume"], '`cd "C:\\Users\\me\\My Proj"; claude --resume win`')
+
+    @unittest.skipIf(os.name == "nt", "POSIX home-directory paths")
     def test_resume_command_quotes_paths_with_spaces(self):
         e = self.entry("sp", 1, cwd=str(sr.HOME / "My Proj"))
         self.assertEqual(e["f"]["Resume"], "`cd ~/'My Proj' && claude --resume sp`")
@@ -198,17 +206,17 @@ class SummaryTest(Base):
         p = make_transcript("s", 1)
         with sr.locked() as entries:
             entries.append(sr.new_entry("s", sr.read_transcript(p)))
-        before = sr.REGISTRY.read_text()
+        before = sr.REGISTRY.read_text(encoding="utf-8")
         with mock.patch.object(sr, "call_haiku", side_effect=ValueError("bad json")):
             with self.assertRaises(ValueError):
                 sr.summarize("s", p)
-        self.assertEqual(sr.REGISTRY.read_text(), before)
+        self.assertEqual(sr.REGISTRY.read_text(encoding="utf-8"), before)
 
     def test_trivial_collapses_then_restores(self):
         p = make_transcript("t", 1)
         self.summary["trivial"] = True
         sr.summarize("t", p)
-        body = sr.REGISTRY.read_text()[len(sr.HEADER):]
+        body = sr.REGISTRY.read_text(encoding="utf-8")[len(sr.HEADER):]
         self.assertIn("turns:1 pushed:- trivial -->", body)
         self.assertNotIn("## ", body)
         self.summary["trivial"] = False
@@ -228,7 +236,7 @@ class SummaryTest(Base):
         self.assertEqual(e["title"], "Fix the login flow")
         sr.summarize("short", make_transcript("short", 2))
         self.assertTrue(sr.find(sr.load(), "short")["trivial"])
-        self.assertIn("collapsed trivial session short", sr.LOG.read_text())
+        self.assertIn("collapsed trivial session short", sr.LOG.read_text(encoding="utf-8"))
 
     def test_overlapping_summary_does_not_fake_a_rename(self):
         p = make_transcript("o", 1)
@@ -344,13 +352,13 @@ class HookTest(Base):
         p = make_transcript("s", 1)
         with sr.locked() as entries:
             entries.append(sr.new_entry("s", sr.read_transcript(p)))
-        before = sr.REGISTRY.read_text()
+        before = sr.REGISTRY.read_text(encoding="utf-8")
         with mock.patch.object(sr, "call_haiku", side_effect=ValueError("bad json")):
             self.assertEqual(run_main(["summarize", "s", p]), "")
-        self.assertEqual(sr.REGISTRY.read_text(), before)
-        self.assertIn("bad json", sr.LOG.read_text())
+        self.assertEqual(sr.REGISTRY.read_text(encoding="utf-8"), before)
+        self.assertIn("bad json", sr.LOG.read_text(encoding="utf-8"))
         self.assertEqual(run_main(["prompt"], {"no": "session_id"}), "")   # malformed hook input
-        self.assertIn("KeyError", sr.LOG.read_text())
+        self.assertIn("KeyError", sr.LOG.read_text(encoding="utf-8"))
 
     def test_unsafe_session_id_never_reaches_a_resume_command(self):
         p = make_transcript("ok", 1)
@@ -359,7 +367,7 @@ class HookTest(Base):
         run_main(["stop"], hook("$(touch pwned)", p))
         self.assertEqual(sr.load(), [])
         self.assertEqual(self.spawned, [])
-        self.assertIn("unsafe session id", sr.LOG.read_text())
+        self.assertIn("unsafe session id", sr.LOG.read_text(encoding="utf-8"))
 
     def test_backfill_adds_interactive_sessions_only(self):
         make_transcript("b1", 2, day=1)
