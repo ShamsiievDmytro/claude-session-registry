@@ -136,8 +136,9 @@ def tilde(path):
 
 
 def resume_command(cwd, sid):
-    if WINDOWS:  # single quotes keep $(...) and ` literal in PowerShell and Git Bash; ' is doubled for PowerShell
-        where = "'" + cwd.replace("'", "''") + "'"
+    if WINDOWS:  # single quotes keep $(...) and ` literal in PowerShell and Git Bash
+        # PowerShell ends '...' at any of ' ‘ ’ ‚ ‛ and reads a doubled one as that literal character
+        where = "'" + re.sub("(['‘’‚‛])", r"\1\1", cwd) + "'"
         # PowerShell's cd reads [ ] as wildcards; -LiteralPath is PowerShell-only, so use it only when needed
         cd = "Set-Location -LiteralPath" if "[" in cwd or "]" in cwd else "cd"
         return f"{cd} {where}; claude --resume {sid}"

@@ -79,7 +79,7 @@ Lists your 10 most recent sessions.
 ```
 Finds the matching session and prints its resume command, already written for the system the session ran on.
 
-macOS and Linux (bash, zsh, sh, fish):
+macOS and Linux (bash, zsh, sh):
 
 ```bash
 cd ~/code/api && claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
