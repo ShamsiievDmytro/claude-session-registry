@@ -82,7 +82,10 @@ These lean flags skip your plugins, tools and CLAUDE.md. A default `claude -p` c
 - **Hooks never break a session:** errors go to `~/.claude/session-registry.log` and the hook exits 0.
 - **Resume line:** session IDs must match `[\w-]+`.
   - macOS/Linux: folders are quoted with `shlex.quote`, giving `cd ~/'My Proj' && claude --resume <id>`.
-  - Windows: `cd "C:\path"; claude --resume <id>`, which works in PowerShell 5/7 and Git Bash.
+  - Windows: `cd 'C:\path'; claude --resume <id>`, single-quoted with `'` doubled, so `$(…)` and backticks stay literal in PowerShell 5/7 and Git Bash.
+  - Windows folders containing `[` or `]` get `Set-Location -LiteralPath`, because PowerShell's `cd` treats brackets as wildcards.
+  - CI pastes every form into real bash, sh, PowerShell 5, PowerShell 7 and Git Bash with hostile folder names.
+- **Finding `claude`:** only absolute `PATH` entries and `~/.local/bin` are searched, never the current folder. Hooks run inside the user's project, and both `shutil.which` and Windows' process search look in the current folder first.
 - **Starting Python:** `hooks/run` picks `python3` on macOS/Linux, and `py -3` then `python` on Windows (where `python3` is often a Microsoft Store stub). On Windows the background summarizer starts without a console window.
 - **Haiku's text** is collapsed to single lines, so it can't inject entries or fields.
 - **Rename detection:** a custom title counts as your `/rename` only if it differs from every title we pushed. This survives the desktop app's own auto titles and summaries that run at the same time.

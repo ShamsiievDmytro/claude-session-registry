@@ -21,10 +21,17 @@ Read the first 150 lines of the registry (sessions with no real work are hidden 
    ```
 3. Rank by score, then by order in the file (newest first). Recent work is the likelier target when scores tie.
 4. Answer:
-   - **One clear match:** show its title, When, Project, About and Left off, then the Resume command (without its backticks) in a code block.
+   - **One clear match:** show its title, When, Project, About and Left off, then the Resume command (without its backticks) in a code block. Copy it exactly. Its quoting is already right for the system the session ran on (`cd ~/'…' && claude --resume …` for macOS/Linux shells; `cd '…'; claude --resume …` for PowerShell on Windows), and rewriting it can break folders with spaces, quotes or `$`.
    - **2 to 5 close matches:** show a numbered list (`title · date · project`) and ask which one.
    - **No match:** ask for more detail: the project, a rough date, files touched, or what was being done.
 5. Only if the extra detail still finds nothing, search the raw transcripts: `grep -il "<word>" ~/.claude/projects/*/*.jsonl`. They are large and mostly automated runs, so this is slow and noisy, and it's a last resort. The file name without `.jsonl` is the session ID: `claude --resume <id>`.
+
+## Opening the registry file
+
+If the user wants to open or browse the file itself, give the command for their system:
+- macOS: `open ~/.claude/session-registry.md`
+- Linux: `xdg-open ~/.claude/session-registry.md`
+- Windows (PowerShell): `Invoke-Item "$HOME\.claude\session-registry.md"` (or `notepad "$HOME\.claude\session-registry.md"`)
 
 ## Deleted transcripts
 

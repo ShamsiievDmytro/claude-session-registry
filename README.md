@@ -77,33 +77,50 @@ Lists your 10 most recent sessions.
 ```
 /find-session rate limiting redis
 ```
-Finds the matching session and prints its resume command:
+Finds the matching session and prints its resume command, already written for the system the session ran on.
+
+macOS and Linux (bash, zsh, sh, fish):
 
 ```bash
 cd ~/code/api && claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
 ```
 
-On Windows the command works as-is in PowerShell and Git Bash:
+Windows (PowerShell 5 or 7; also Git Bash unless the folder name contains `'` or `[ ]`):
 
 ```powershell
-cd "C:\Users\you\code\api"; claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
+cd 'C:\Users\you\code\api'; claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
 ```
+
+In Windows `cmd.exe`, type it as `cd /d "C:\Users\you\code\api" && claude --resume <id>`.
+
+Folder names are quoted so that spaces, quotes, `$(…)` and backticks are taken literally. CI pastes each command into real bash, sh, PowerShell 5, PowerShell 7 and Git Bash and checks it lands in the right folder.
 
 You don't need the slash command either. "Where did I leave off on the billing refactor?" or "which session was about the flaky login test?" work too. If nothing matches, Claude asks for more detail: the project, a rough date, or files you touched.
 
-Or skip Claude and read the file yourself:
+Or skip Claude and open the file yourself.
+
+macOS:
 
 ```bash
 open ~/.claude/session-registry.md
 grep -i -A8 "redis" ~/.claude/session-registry.md
 ```
 
-On Windows (PowerShell):
+Linux:
+
+```bash
+xdg-open ~/.claude/session-registry.md
+grep -i -A8 "redis" ~/.claude/session-registry.md
+```
+
+Windows (PowerShell):
 
 ```powershell
-notepad "$HOME\.claude\session-registry.md"
+Invoke-Item "$HOME\.claude\session-registry.md"
 Select-String -Path "$HOME\.claude\session-registry.md" -Pattern "redis" -Context 0,8
 ```
+
+If Windows asks which app to use, `notepad "$HOME\.claude\session-registry.md"` always works.
 
 ## How it works
 

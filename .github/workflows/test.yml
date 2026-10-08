@@ -23,3 +23,12 @@ jobs:
           out=$(echo '{"session_id":"ci"}' | bash hooks/run prompt)
           test -z "$out"
           test -f ~/.claude/session-registry.md
+      - name: Registry path used by the Windows open command resolves (PowerShell 5 and 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$HOME\.claude\session-registry.md")) { exit 1 }
+          powershell -NoProfile -Command 'if (-not (Test-Path "$HOME\.claude\session-registry.md")) { exit 1 }'
+      - name: macOS open command exists
+        if: runner.os == 'macOS'
+        run: command -v open

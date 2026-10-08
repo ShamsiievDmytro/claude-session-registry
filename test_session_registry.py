@@ -145,7 +145,7 @@ class RegistryFileTest(Base):
     def test_windows_resume_command_works_in_powershell(self):
         with mock.patch.object(sr, "WINDOWS", True):
             e = self.entry("win", 1, cwd="C:\\Users\\me\\My Proj")
-        self.assertEqual(e["f"]["Resume"], '`cd "C:\\Users\\me\\My Proj"; claude --resume win`')
+        self.assertEqual(e["f"]["Resume"], "`cd 'C:\\Users\\me\\My Proj'; claude --resume win`")
 
     @unittest.skipIf(os.name == "nt", "POSIX home-directory paths")
     def test_resume_command_quotes_paths_with_spaces(self):
@@ -378,6 +378,86 @@ class HookTest(Base):
         self.assertIn("added b1", out)
         run_main(["backfill"])
         self.assertEqual(len(sr.load()), 2)
+
+
+class SecurityTest(Base):
+    def test_windows_resume_command_runs_nothing_from_the_folder_name(self):
+        # $(...) and backticks must stay literal when pasted into PowerShell or Git Bash
+        with mock.patch.object(sr, "WINDOWS", True):
+            cmd = sr.resume_command("C:\\code\\$(calc) `x` it's", "s1")
+        self.assertEqual(cmd, "cd 'C:\\code\\$(calc) `x` it''s'; claude --resume s1")
+
+    def test_windows_resume_command_takes_brackets_literally(self):
+        with mock.patch.object(sr, "WINDOWS", True):
+            cmd = sr.resume_command("C:\\code\\app [v2]", "s1")
+        self.assertEqual(cmd, "Set-Location -LiteralPath 'C:\\code\\app [v2]'; claude --resume s1")
+
+    def test_claude_is_never_taken_from_the_current_directory(self):
+        planted, empty = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        names = ["claude.exe", "claude.cmd", "claude.bat"] if os.name == "nt" else ["claude"]
+        for name in names:
+            (planted / name).write_text("echo pwned")
+            (planted / name).chmod(0o755)
+        here = os.getcwd()
+        os.chdir(planted)  # a repo that ships its own "claude"
+        try:
+            with mock.patch.dict(os.environ, {"PATH": str(empty) + os.pathsep + "." + os.pathsep + "bin"}), \
+                    mock.patch.object(sr, "HOME", empty):
+                with self.assertRaises(RuntimeError):
+                    sr.claude_bin()
+            with mock.patch.dict(os.environ, {"PATH": str(planted)}):  # an absolute PATH entry is trusted
+                self.assertEqual(sr.claude_bin(), str(planted / names[0]))
+        finally:
+            os.chdir(here)
+
+
+GIT_BASH = r"C:\Program Files\Git\bin\bash.exe"  # Claude Code's shell on Windows (not WSL's System32 bash)
+
+
+class ShellTest(unittest.TestCase):
+    """Pastes each generated resume command into a real shell, with a stub `claude` that records where it ran.
+
+    The folder names carry $(...), backticks, quotes and brackets: the old double-quoted Windows command
+    would have created PWNED, and an unquoted one would have landed in the wrong folder.
+    """
+
+    def run_resume(self, shell, name, windows, stub):
+        root = Path(tempfile.mkdtemp())
+        target, bin_dir, out = root / name, root / "bin", root / "out.txt"
+        target.mkdir()
+        bin_dir.mkdir()
+        if stub == "sh":
+            (bin_dir / "claude").write_text('#!/bin/sh\n{ pwd -W 2>/dev/null || pwd; echo "$@"; } > "$OUT"\n')
+            (bin_dir / "claude").chmod(0o755)
+        else:  # PowerShell runs claude.cmd
+            (bin_dir / "claude.cmd").write_text('@echo off\r\n(cd & echo %*) > "%OUT%"\r\n')
+        with mock.patch.object(sr, "WINDOWS", windows), mock.patch.object(sr, "HOME", root):
+            cmd = sr.resume_command(str(target), "s1")  # POSIX: target is under HOME, so this tests ~/'...'
+        env = dict(os.environ, OUT=str(out), HOME=str(root), PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
+        r = subprocess.run(shell + [cmd], cwd=root, env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, f"{shell[0]}: {cmd}\n{r.stderr}")
+        ran_in, args = out.read_text().splitlines()[:2]
+        self.assertEqual(os.path.realpath(ran_in.strip()).lower(), os.path.realpath(target).lower(), cmd)
+        self.assertEqual(args.strip(), "--resume s1")
+        self.assertEqual(list(root.rglob("PWNED")), [], f"{shell[0]} executed part of the folder name")
+
+    @unittest.skipIf(os.name == "nt", "POSIX shells")
+    def test_resume_command_in_bash_and_sh(self):
+        for shell in (["bash", "-c"], ["sh", "-c"]):
+            self.run_resume(shell, "My $(touch PWNED) `touch PWNED` it's [1]", windows=False, stub="sh")
+
+    @unittest.skipUnless(os.name == "nt", "Windows shells")
+    def test_resume_command_in_powershell(self):
+        shells = [exe for exe in ("powershell", "pwsh") if shutil.which(exe)]
+        self.assertTrue(shells)
+        for exe in shells:
+            self.run_resume([exe, "-NoProfile", "-Command"], "My $(ni PWNED) $(touch PWNED) `t it's [1]",
+                            windows=True, stub="cmd")
+
+    @unittest.skipUnless(os.path.exists(GIT_BASH), "Git Bash on Windows")
+    def test_resume_command_in_git_bash(self):
+        # no ' or [ ]: those Windows names are PowerShell-only (doubled '' and -LiteralPath)
+        self.run_resume([GIT_BASH, "-c"], "My $(ni PWNED) $(touch PWNED) `t", windows=True, stub="sh")
 
 
 if __name__ == "__main__":

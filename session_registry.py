@@ -9,7 +9,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -137,8 +136,11 @@ def tilde(path):
 
 
 def resume_command(cwd, sid):
-    if WINDOWS:  # ponytail: "..." and ';' work in PowerShell 5/7 and Git Bash; a '$' or '`' in the path would not
-        return f'cd "{cwd}"; claude --resume {sid}'
+    if WINDOWS:  # single quotes keep $(...) and ` literal in PowerShell and Git Bash; ' is doubled for PowerShell
+        where = "'" + cwd.replace("'", "''") + "'"
+        # PowerShell's cd reads [ ] as wildcards; -LiteralPath is PowerShell-only, so use it only when needed
+        cd = "Set-Location -LiteralPath" if "[" in cwd or "]" in cwd else "cd"
+        return f"{cd} {where}; claude --resume {sid}"
     home = str(HOME) + "/"  # ~ stays unquoted so the shell still expands it
     where = "~/" + shlex.quote(cwd[len(home):]) if cwd.startswith(home) else shlex.quote(cwd)
     return f"cd {where} && claude --resume {sid}"
@@ -270,8 +272,19 @@ KEYS = {"title", "about", "left_off", "keywords", "trivial"}
 
 
 def claude_bin():
-    # PATH first, then the native installer's location (claude.exe on Windows)
-    return shutil.which("claude") or shutil.which("claude", path=str(HOME / ".local" / "bin")) or "claude"
+    """Absolute path of the claude CLI from absolute PATH entries or ~/.local/bin, never the current folder.
+
+    shutil.which and Windows' process search both look in the current folder first, and hooks run inside the
+    user's project, so a repo shipping its own claude.exe would otherwise be executed.
+    """
+    names = ("claude.exe", "claude.cmd", "claude.bat") if os.name == "nt" else ("claude",)
+    folders = os.environ.get("PATH", "").split(os.pathsep) + [str(HOME / ".local" / "bin")]
+    for folder in filter(os.path.isabs, folders):
+        for name in names:
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+    raise RuntimeError("claude CLI not found on PATH or in ~/.local/bin")
 
 
 def call_haiku(text):

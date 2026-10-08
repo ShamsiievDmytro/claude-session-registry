@@ -1,6 +1,6 @@
 {
   "name": "session-registry",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Keeps a searchable Markdown registry of your Claude Code sessions (title, summary, where you left off, resume command) and a /find-session skill to get back to any of them.",
   "author": {
     "name": "Dmytro Shamsiiev",
