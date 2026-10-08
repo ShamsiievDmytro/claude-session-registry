@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Hook launcher: runs session_registry.py with Python 3.
+# macOS/Linux: python3. Windows (Git Bash): `py -3`, then `python`; `python3` there is often a Store stub.
+script="$(dirname "$0")/../session_registry.py"
+if [ "$OS" != "Windows_NT" ] && command -v python3 >/dev/null 2>&1; then
+  exec python3 "$script" "$@"
+elif command -v py >/dev/null 2>&1; then
+  exec py -3 "$script" "$@"
+else
+  exec python "$script" "$@"
+fi

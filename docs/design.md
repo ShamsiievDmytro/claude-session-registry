@@ -77,9 +77,13 @@ claude -p --model haiku --output-format json --no-session-persistence \
 These lean flags skip your plugins, tools and CLAUDE.md. A default `claude -p` call costs about 8× more.
 
 **Safety:**
-- **Writes:** every write holds an `fcntl` lock and goes through a temp file plus `os.replace`, so parallel sessions never corrupt the file.
+- **Writes:** every write holds a file lock (`fcntl` on macOS/Linux, `msvcrt` on Windows) and goes through a temp file plus `os.replace`, so parallel sessions never corrupt the file. On Windows the replace is retried briefly while another process has the file open.
+- **Encoding:** every file is read and written as UTF-8, so Windows' default code page can't break the `→` and `⚠` characters.
 - **Hooks never break a session:** errors go to `~/.claude/session-registry.log` and the hook exits 0.
-- **Resume line:** session IDs must match `[\w-]+`, and folders are quoted with `shlex.quote`.
+- **Resume line:** session IDs must match `[\w-]+`.
+  - macOS/Linux: folders are quoted with `shlex.quote`, giving `cd ~/'My Proj' && claude --resume <id>`.
+  - Windows: `cd "C:\path"; claude --resume <id>`, which works in PowerShell 5/7 and Git Bash.
+- **Starting Python:** `hooks/run` picks `python3` on macOS/Linux, and `py -3` then `python` on Windows (where `python3` is often a Microsoft Store stub). On Windows the background summarizer starts without a console window.
 - **Haiku's text** is collapsed to single lines, so it can't inject entries or fields.
 - **Rename detection:** a custom title counts as your `/rename` only if it differs from every title we pushed. This survives the desktop app's own auto titles and summaries that run at the same time.
 
@@ -99,5 +103,5 @@ About 30 interactive sessions a month comes to roughly 160 summaries, around $0.
 
 ## Limits and next steps
 
-- **Platform:** Claude Code only, macOS or Linux (it uses `fcntl`). A Codex version could use Codex's own hooks and `codex resume <id>`.
+- **Platform:** Claude Code on macOS, Linux and Windows. Windows needs Git Bash, Claude Code's shell there, and is verified in CI but not yet in a live session. A Codex version could use Codex's own hooks and `codex resume <id>`.
 - **Transcript retention:** Claude deletes transcripts after `cleanupPeriodDays` (default 30). Raise that setting if you want old entries to stay resumable.

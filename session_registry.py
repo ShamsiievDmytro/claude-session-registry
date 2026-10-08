@@ -4,7 +4,6 @@
 Hooks keep ~/.claude/session-registry.md up to date; Haiku writes each entry's
 title, about, left-off and keywords. Design: docs/design.md
 """
-import fcntl
 import hashlib
 import json
 import os
@@ -14,10 +13,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
+
+WINDOWS = os.name == "nt"  # picks the resume-command syntax
 HOME = Path.home()
 REGISTRY = Path(os.environ.get("SESSION_REGISTRY_FILE", HOME / ".claude" / "session-registry.md"))
 LOCK = REGISTRY.with_suffix(".lock")
@@ -57,7 +64,7 @@ def _prompt_text(content):
 def read_transcript(path):
     t = {"prompts": 0, "entrypoint": None, "model": None, "branch": None, "cwd": None,
          "first_ts": None, "last_ts": None, "custom_title": None, "lines": []}
-    with open(path, errors="ignore") as fh:
+    with open(path, encoding="utf-8", errors="ignore") as fh:
         for raw in fh:
             try:
                 d = json.loads(raw)
@@ -126,13 +133,15 @@ def local(ts):
 
 def tilde(path):
     home = str(HOME)
-    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+    return "~" + path[len(home):] if path == home or path.startswith(home + os.sep) else path
 
 
-def cd_path(path):
-    """Shell-safe folder for the resume command; ~ stays unquoted so the shell still expands it."""
-    home = str(HOME) + "/"
-    return "~/" + shlex.quote(path[len(home):]) if path.startswith(home) else shlex.quote(path)
+def resume_command(cwd, sid):
+    if WINDOWS:  # ponytail: "..." and ';' work in PowerShell 5/7 and Git Bash; a '$' or '`' in the path would not
+        return f'cd "{cwd}"; claude --resume {sid}'
+    home = str(HOME) + "/"  # ~ stays unquoted so the shell still expands it
+    where = "~/" + shlex.quote(cwd[len(home):]) if cwd.startswith(home) else shlex.quote(cwd)
+    return f"cd {where} && claude --resume {sid}"
 
 
 def one_line(value):
@@ -153,7 +162,7 @@ def base_fields(sid, t):
         "About": "—",
         "Left off": "—",
         "Keywords": "—",
-        "Resume": f"`cd {cd_path(cwd)} && claude --resume {sid}`",
+        "Resume": f"`{resume_command(cwd, sid)}`",
     }
 
 
@@ -178,7 +187,7 @@ def load():
     if not REGISTRY.exists():
         return []
     entries, cur = [], None
-    for line in REGISTRY.read_text().splitlines():
+    for line in REGISTRY.read_text(encoding="utf-8").splitlines():
         m = MARK.match(line)
         field = FIELD.match(line)
         if m:
@@ -212,8 +221,24 @@ def mark_stale(entries):
 def save(entries):
     entries.sort(key=lambda e: e["created"], reverse=True)  # stable: equal timestamps keep their order
     tmp = REGISTRY.with_suffix(".tmp")
-    tmp.write_text(HEADER + "".join("\n" + render(e) + "\n" for e in entries))
-    os.replace(tmp, REGISTRY)
+    tmp.write_text(HEADER + "".join("\n" + render(e) + "\n" for e in entries), encoding="utf-8")
+    for _ in range(50):  # Windows refuses to replace a file another process has open; wait for the reader
+        try:
+            return os.replace(tmp, REGISTRY)
+        except PermissionError:
+            time.sleep(0.1)
+    os.replace(tmp, REGISTRY)  # last try: let the error reach the log
+
+
+def lock_file(fh):
+    """Block until this process holds the lock; it is released when fh closes."""
+    if fcntl:
+        return fcntl.flock(fh, fcntl.LOCK_EX)
+    while True:  # msvcrt gives up after ~10 s of retries; a hook must wait its turn, not fail
+        try:
+            return msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            pass
 
 
 @contextmanager
@@ -221,7 +246,7 @@ def locked():
     """Load entries under an exclusive lock and save them on clean exit; an exception skips the save."""
     REGISTRY.parent.mkdir(parents=True, exist_ok=True)
     with open(LOCK, "w") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+        lock_file(fh)
         entries = load()
         yield entries
         mark_stale(entries)
@@ -245,7 +270,8 @@ KEYS = {"title", "about", "left_off", "keywords", "trivial"}
 
 
 def claude_bin():
-    return shutil.which("claude") or str(HOME / ".local" / "bin" / "claude")
+    # PATH first, then the native installer's location (claude.exe on Windows)
+    return shutil.which("claude") or shutil.which("claude", path=str(HOME / ".local" / "bin")) or "claude"
 
 
 def call_haiku(text):
@@ -253,7 +279,7 @@ def call_haiku(text):
     cmd = [claude_bin(), "-p", "--model", "haiku", "--output-format", "json", "--no-session-persistence",
            "--setting-sources", "", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
            "--system-prompt", SYSTEM]
-    r = subprocess.run(cmd, input=PROMPT + text, capture_output=True, text=True, timeout=120,
+    r = subprocess.run(cmd, input=PROMPT + text, capture_output=True, encoding="utf-8", timeout=120,
                        cwd=tempfile.gettempdir(), env={**os.environ, "SESSION_REGISTRY_CHILD": "1"})
     if r.returncode != 0:
         raise RuntimeError(f"claude -p exited {r.returncode}: {r.stderr.strip()[:300]}")
@@ -312,8 +338,10 @@ def summarize(sid, transcript_path):
 
 def spawn(sid, transcript_path):
     """Summarize in a detached process so the hook returns immediately and survives the session exiting."""
+    # Windows: no console window for it or the claude -p it runs; own process group so the session's Ctrl+C skips it
+    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "summarize", sid, transcript_path],
-                     start_new_session=True, stdin=subprocess.DEVNULL,
+                     start_new_session=True, creationflags=flags, stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -362,7 +390,7 @@ def on_prompt(hook):
 
 def log(message):
     LOG.parent.mkdir(parents=True, exist_ok=True)
-    with open(LOG, "a") as fh:
+    with open(LOG, "a", encoding="utf-8") as fh:
         fh.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {message}\n")
 
 

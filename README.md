@@ -1,12 +1,17 @@
 # claude-session-registry
 
+[![tests](https://github.com/ShamsiievDmytro/claude-session-registry/actions/workflows/test.yml/badge.svg)](https://github.com/ShamsiievDmytro/claude-session-registry/actions/workflows/test.yml)
+
 A searchable logbook of your Claude Code sessions. Every interactive session gets an entry in one Markdown file, `~/.claude/session-registry.md`: a short title, what it was about, where you left off, and the exact command to resume it. Ask `/find-session` and get back to any session, in any project.
 
 ## Install
 
 Requirements:
-- Claude Code 2.1 or newer, on macOS or Linux.
-- `python3` 3.9 or newer.
+- Claude Code 2.1 or newer, on macOS, Linux or Windows.
+- Python 3.9 or newer:
+  - macOS and Linux: as `python3`.
+  - Windows: from [python.org](https://www.python.org/downloads/windows/), which provides the `py` launcher, or from the Microsoft Store.
+- Windows only: [Git for Windows](https://git-scm.com/download/win). Its Git Bash is the shell Claude Code uses on Windows, and the plugin's hooks run in it.
 - The `claude` CLI, logged in. Summaries run through your own account.
 
 In Claude Code:
@@ -30,6 +35,13 @@ Start a new session, and the registry fills in from there.
 ```bash
 git clone https://github.com/ShamsiievDmytro/claude-session-registry
 python3 claude-session-registry/session_registry.py backfill
+```
+
+On Windows (PowerShell):
+
+```powershell
+git clone https://github.com/ShamsiievDmytro/claude-session-registry
+py -3 claude-session-registry\session_registry.py backfill
 ```
 
 **Uninstall:**
@@ -71,6 +83,12 @@ Finds the matching session and prints its resume command:
 cd ~/code/api && claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
 ```
 
+On Windows the command works as-is in PowerShell and Git Bash:
+
+```powershell
+cd "C:\Users\you\code\api"; claude --resume 6f1c2a9e-1b7d-4c3e-9a51-0e8d2f4b7c11
+```
+
 You don't need the slash command either. "Where did I leave off on the billing refactor?" or "which session was about the flaky login test?" work too. If nothing matches, Claude asks for more detail: the project, a rough date, or files you touched.
 
 Or skip Claude and read the file yourself:
@@ -78,6 +96,13 @@ Or skip Claude and read the file yourself:
 ```bash
 open ~/.claude/session-registry.md
 grep -i -A8 "redis" ~/.claude/session-registry.md
+```
+
+On Windows (PowerShell):
+
+```powershell
+notepad "$HOME\.claude\session-registry.md"
+Select-String -Path "$HOME\.claude\session-registry.md" -Pattern "redis" -Context 0,8
 ```
 
 ## How it works
@@ -103,6 +128,8 @@ Each summary is one lean Haiku call: no plugins, tools or project memory loaded.
 | `~/.claude/session-registry.log` | Errors, if any. Hooks never interrupt a session. |
 | `~/.claude/session-registry.lock` | Keeps parallel sessions from writing at the same time. |
 
+On Windows, `~` is your user folder, for example `C:\Users\you\.claude\session-registry.md`.
+
 To keep the registry somewhere else, set `SESSION_REGISTRY_FILE` in the `env` block of `~/.claude/settings.json`.
 
 **Privacy:** transcripts are read locally. The only thing sent anywhere is the condensed transcript, which goes to Haiku through your own Claude login.
@@ -110,8 +137,8 @@ To keep the registry somewhere else, set `SESSION_REGISTRY_FILE` in the `env` bl
 ## Limitations
 
 - Claude Code only. Codex support would need its own hooks.
-- macOS and Linux only; it uses `fcntl` file locking.
-- `claude` must be on `PATH` or at `~/.local/bin/claude`, so the background summaries can run.
+- `claude` must be on `PATH` or at `~/.local/bin/claude` (`claude.exe` on Windows), so the background summaries can run.
+- Windows is covered by CI: the tests and the hook launcher run on `windows-latest` with Python 3.9 and 3.13. It hasn't yet been tried in a live Windows Claude Code session, so issue reports are welcome.
 
 ## Development
 
@@ -120,3 +147,7 @@ python3 -m unittest -v test_session_registry
 ```
 
 The tests are stdlib-only and never call Haiku.
+
+## License
+
+[MIT](LICENSE)

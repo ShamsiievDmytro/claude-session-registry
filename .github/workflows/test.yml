@@ -17,3 +17,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m unittest -v test_session_registry
+      - name: Hook launcher finds Python and prints nothing
+        shell: bash
+        run: |
+          out=$(echo '{"session_id":"ci"}' | bash hooks/run prompt)
+          test -z "$out"
+          test -f ~/.claude/session-registry.md
