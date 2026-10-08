@@ -125,7 +125,7 @@ Each summary is one lean Haiku call: no plugins, tools or project memory loaded.
 | File | Purpose |
 |---|---|
 | `~/.claude/session-registry.md` | The registry. Hand edits are overwritten. |
-| `~/.claude/session-registry.log` | Errors, if any. Hooks never interrupt a session. |
+| `~/.claude/session-registry.log` | Errors and sessions hidden as "no real work". Hooks never interrupt a session. |
 | `~/.claude/session-registry.lock` | Keeps parallel sessions from writing at the same time. |
 
 On Windows, `~` is your user folder, for example `C:\Users\you\.claude\session-registry.md`.
