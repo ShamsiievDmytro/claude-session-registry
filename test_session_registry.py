@@ -392,6 +392,13 @@ class SecurityTest(Base):
             cmd = sr.resume_command("C:\\code\\app [v2]", "s1")
         self.assertEqual(cmd, "Set-Location -LiteralPath 'C:\\code\\app [v2]'; claude --resume s1")
 
+    def test_windows_resume_command_escapes_powershell_curly_quotes(self):
+        # PowerShell ends a '...' string at any of ' ‘ ’ ‚ ‛, so each one must be doubled
+        with mock.patch.object(sr, "WINDOWS", True):
+            cmd = sr.resume_command("C:\\code\\x\u2019; ni PWNED; \u2018\u201a\u201b", "s1")
+        self.assertEqual(cmd, "cd 'C:\\code\\x\u2019\u2019; ni PWNED; \u2018\u2018\u201a\u201a\u201b\u201b'; "
+                              "claude --resume s1")
+
     def test_claude_is_never_taken_from_the_current_directory(self):
         planted, empty = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
         names = ["claude.exe", "claude.cmd", "claude.bat"] if os.name == "nt" else ["claude"]
@@ -430,13 +437,13 @@ class ShellTest(unittest.TestCase):
             (bin_dir / "claude").write_text('#!/bin/sh\n{ pwd -W 2>/dev/null || pwd; echo "$@"; } > "$OUT"\n')
             (bin_dir / "claude").chmod(0o755)
         else:  # PowerShell runs claude.cmd
-            (bin_dir / "claude.cmd").write_text('@echo off\r\n(cd & echo %*) > "%OUT%"\r\n')
+            (bin_dir / "claude.cmd").write_text('@echo off\r\nchcp 65001 >nul\r\n(cd & echo %*) > "%OUT%"\r\n')
         with mock.patch.object(sr, "WINDOWS", windows), mock.patch.object(sr, "HOME", root):
             cmd = sr.resume_command(str(target), "s1")  # POSIX: target is under HOME, so this tests ~/'...'
         env = dict(os.environ, OUT=str(out), HOME=str(root), PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
         r = subprocess.run(shell + [cmd], cwd=root, env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, f"{shell[0]}: {cmd}\n{r.stderr}")
-        ran_in, args = out.read_text().splitlines()[:2]
+        ran_in, args = out.read_text(encoding="utf-8").splitlines()[:2]
         self.assertEqual(os.path.realpath(ran_in.strip()).lower(), os.path.realpath(target).lower(), cmd)
         self.assertEqual(args.strip(), "--resume s1")
         self.assertEqual(list(root.rglob("PWNED")), [], f"{shell[0]} executed part of the folder name")
@@ -451,7 +458,8 @@ class ShellTest(unittest.TestCase):
         shells = [exe for exe in ("powershell", "pwsh") if shutil.which(exe)]
         self.assertTrue(shells)
         for exe in shells:
-            self.run_resume([exe, "-NoProfile", "-Command"], "My $(ni PWNED) $(touch PWNED) `t it's [1]",
+            self.run_resume([exe, "-NoProfile", "-Command"],
+                            "My $(ni PWNED) $(touch PWNED) `t it's [1] x’; ni PWNED; ’",
                             windows=True, stub="cmd")
 
     @unittest.skipUnless(os.path.exists(GIT_BASH), "Git Bash on Windows")
